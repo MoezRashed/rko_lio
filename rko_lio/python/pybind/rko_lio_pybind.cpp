@@ -53,7 +53,7 @@ PYBIND11_MODULE(rko_lio_pybind, m) {
       .def_readonly("imu_acceleration_sum", &IntervalStats::imu_acceleration_sum)
       .def_readonly("imu_accel_mag_mean", &IntervalStats::imu_accel_mag_mean)
       .def_readonly("welford_sum_of_squares", &IntervalStats::welford_sum_of_squares);
-
+  // This makes the data accessible from python to read-write
   py::class_<LIO::Config>(m, "_LIOConfig")
       .def(py::init<>())
       .def_readwrite("deskew", &LIO::Config::deskew)
@@ -68,7 +68,12 @@ PYBIND11_MODULE(rko_lio_pybind, m) {
       .def_readwrite("initialization_phase", &LIO::Config::initialization_phase)
       .def_readwrite("max_expected_jerk", &LIO::Config::max_expected_jerk)
       .def_readwrite("double_downsample", &LIO::Config::double_downsample)
-      .def_readwrite("min_beta", &LIO::Config::min_beta);
+      .def_readwrite("min_beta", &LIO::Config::min_beta)
+      .def_readwrite("enable_registration",&LIO::Config::enable_registration)
+      .def_readwrite("map_radius",&LIO::Config::map_radius)
+      .def_readwrite("time_period_map_registration",&LIO::Config::time_period_map_registration)
+      .def_readwrite("max_translation",&LIO::Config::max_translation)
+      .def_readwrite("max_rotation",&LIO::Config::max_rotation);
 
   py::class_<LIO>(m, "_LIO")
       .def(py::init<const LIO::Config&>(), "config"_a)

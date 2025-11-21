@@ -37,6 +37,7 @@
 // stl
 #include <algorithm>
 #include <functional>
+#include <iterator>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
@@ -195,6 +196,11 @@ inline Sophus::SO3d align_accel_to_z_world(const Eigen::Vector3d& accel) {
   const Eigen::Vector3d z_world = {0.0, 0.0, 1.0};
   const Eigen::Quaterniond quat_accel = Eigen::Quaterniond::FromTwoVectors(accel, z_world);
   return Sophus::SO3d(quat_accel);
+}
+
+void LIO::set_reference_map(const Vector3dVector& map_points){
+  _reference_map.emplace(config.voxel_size, config.max_range, config.max_points_per_voxel);
+  _reference_map->Update(map_points, Sophus::SE3d{});
 }
 } // namespace
 
@@ -448,6 +454,50 @@ Vector3dVector LIO::register_scan(const Vector3dVector& scan, const TimestampVec
   interval_stats.reset();
 
   map.Update(preproc_result.map_update_frame(), lidar_state.pose);
+
+  // Periodic registration against reference map
+  if (config.enable_registration && _reference_map.has_value()) {
+    const double since_last = (current_lidar_time - _last_registration_time).count();
+    if (_last_registration_time.count() <= 0.0 || since_last >= config.time_period_map_registration) {
+      const Vector3dVector local_map_points = map.Pointcloud();
+      if (!local_map_points.empty()) {
+        // Extract a neighborhood from the reference map around the current pose
+        const Eigen::Vector3d& origin = lidar_state.pose.translation();
+        const Vector3dVector reference_points = _reference_map->Pointcloud();
+        Vector3dVector reference_window;
+        reference_window.reserve(reference_points.size());
+        std::copy_if(reference_points.cbegin(),
+                     reference_points.cend(),
+                     std::back_inserter(reference_window),
+                     [&](const Eigen::Vector3d& p) { return (p - origin).norm() <= config.map_radius; });
+
+        if (reference_window.empty()) {
+          std::cerr << "[WARNING] Reference map registration skipped: no reference points within radius "
+                    << config.map_radius << "m.\n";
+        } else {
+          SparseVoxelGrid reference_window_grid(config.voxel_size, config.map_radius, config.max_points_per_voxel);
+          reference_window_grid.AddPoints(reference_window);
+          try {
+            const Sophus::SE3d reg_pose =
+                icp(local_map_points, reference_window_grid, lidar_state.pose, config, std::nullopt);
+            const Sophus::SE3d correction = lidar_state.pose.inverse() * reg_pose;
+            const double trans_norm = correction.translation().norm();
+            const double rot_angle = correction.so3().log().norm();
+            if (trans_norm > config.max_translation || rot_angle > config.max_rotation) {
+              std::cerr << "[WARNING] Map registration rejected: correction exceeds limits (trans=" << trans_norm
+                        << " m, rot=" << rot_angle << " rad).\n";
+            } else {
+              lidar_state.pose = reg_pose;
+              _imu_local_rotation = lidar_state.pose.so3();
+            }
+          } catch (const std::exception& ex) {
+            std::cerr << "[WARNING] Reference map registration failed: " << ex.what() << "\n";
+          }
+        }
+      }
+      _last_registration_time = current_lidar_time;
+    }
+  }
 
   poses_with_timestamps.emplace_back(lidar_state.time, lidar_state.pose);
 

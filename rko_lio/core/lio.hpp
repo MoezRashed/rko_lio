@@ -137,6 +137,21 @@ public:
 
     /** Minimum weight for orientation regularization. */
     double min_beta = 200;
+
+    /** Enable Map registration */
+    bool enable_registration = true;
+
+    /** Reference map radius to compare against */
+    double map_radius = 100.0; // I will keep it default as 100
+    
+    /** Time between Map registration calls */
+    double time_period_map_registration = 5.0; // Seconds
+    
+    /** Max translation correction from Map registration step (x,y,z)*/
+    double max_translation = 5.0; // I set it high because i suspect z translations might be high!
+    
+    /** Max rotation correction from Map registration in radians*/
+    double max_rotation = 0.174533; // 10 degrees in Radian
   };
 
   /** Configuration parameters. */
@@ -198,6 +213,9 @@ public:
   /** Sequence of registered scan poses with corresponding timestamps. */
   std::vector<std::pair<Secondsd, Sophus::SE3d>> poses_with_timestamps;
 
+  /** Load preprocessed reference map into LIO */
+  void set_reference_map(const Vector3dVector& map_points);
+
 private:
   /**
    * Initialize internal odometry state using the given lidar timestamp.
@@ -220,6 +238,12 @@ private:
 
   /** Timestamp of the most recent real IMU measurement. */
   Secondsd _last_real_imu_time = Secondsd{0.0};
+
+  /** Reference map, set as optional to avoid problems with injection.  */
+  std::optional<SparseVoxelGrid> _reference_map;
+
+  /** Time since last Map registration step. */
+  Secondsd _last_registration_time = Secondsd{0.0};
 
   /** Angular velocity of last true IMU measurement expressed in base frame. */
   Eigen::Vector3d _last_real_base_imu_ang_vel = Eigen::Vector3d::Zero();

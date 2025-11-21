@@ -24,6 +24,7 @@
 
 #include "node.hpp"
 #include "rko_lio/core/process_timestamps.hpp"
+#include "rko_lio/core/preprocess_scan.hpp"
 #include "rko_lio/core/profiler.hpp"
 #include "rko_lio/ros/utils/utils.hpp"
 // other
@@ -31,6 +32,7 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <rclcpp/serialization.hpp>
+#include <sstream>
 #include <stdexcept>
 
 namespace {
@@ -42,6 +44,46 @@ rko_lio::core::ImuControl imu_msg_to_imu_data(const sensor_msgs::msg::Imu& imu_m
   imu_data.angular_velocity = rko_lio::ros::utils::ros_xyz_to_eigen_vector3d(imu_msg.angular_velocity);
   imu_data.acceleration = rko_lio::ros::utils::ros_xyz_to_eigen_vector3d(imu_msg.linear_acceleration);
   return imu_data;
+}
+
+std::optional<rko_lio::core::Vector3dVector> load_reference_pcd_ascii(const std::string& path) {
+  std::ifstream file(path);
+  if (!file.is_open()) {
+    std::cerr << "[WARNING] Failed to open reference map PCD at " << path << "\n";
+    return std::nullopt;
+  }
+
+  std::string line;
+  bool in_data_section = false;
+  rko_lio::core::Vector3dVector points;
+  while (std::getline(file, line)) {
+    if (line.rfind("DATA", 0) == 0) {
+      if (line.find("ascii") == std::string::npos) {
+        std::cerr << "[WARNING] Only ASCII PCD files are supported for reference map loading. Skipping " << path
+                  << "\n";
+        return std::nullopt;
+      }
+      in_data_section = true;
+      continue;
+    }
+    if (!in_data_section) {
+      continue; // skip header lines
+    }
+    if (line.empty()) {
+      continue;
+    }
+    std::istringstream iss(line);
+    double x, y, z;
+    if (iss >> x >> y >> z) {
+      points.emplace_back(x, y, z);
+    }
+  }
+
+  if (points.empty()) {
+    std::cerr << "[WARNING] Reference map PCD at " << path << " contained no points.\n";
+    return std::nullopt;
+  }
+  return points;
 }
 
 } // namespace
@@ -61,7 +103,13 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LIO::Config,
                                    initialization_phase,
                                    max_expected_jerk,
                                    double_downsample,
-                                   min_beta)
+                                   min_beta,
+                                   enable_registration,
+                                   map_radius,
+                                   time_period_map_registration,
+                                   max_translation,
+                                   max_rotation
+                                )
 } // namespace rko_lio::core
 
 namespace rko_lio::ros {
@@ -126,7 +174,30 @@ Node::Node(const std::string& node_name, const rclcpp::NodeOptions& options) {
   lio_config.max_expected_jerk = node->declare_parameter<double>("max_expected_jerk", lio_config.max_expected_jerk);
   lio_config.double_downsample = node->declare_parameter<bool>("double_downsample", lio_config.double_downsample);
   lio_config.min_beta = node->declare_parameter<double>("min_beta", lio_config.min_beta);
+  lio_config.enable_registration = node->declare_parameter<bool>("enable_registration", lio_config.enable_registration);
+  lio_config.map_radius = node->declare_parameter<double>("map_radius", lio_config.map_radius);
+  lio_config.time_period_map_registration =
+      node->declare_parameter<double>("time_period_map_registration", lio_config.time_period_map_registration);
+  lio_config.max_translation = node->declare_parameter<double>("max_translation", lio_config.max_translation);
+  lio_config.max_rotation = node->declare_parameter<double>("max_rotation", lio_config.max_rotation);
   lio = std::make_unique<core::LIO>(lio_config);
+
+  // reference map node parameter
+  const std::string reference_map_path = node->declare_parameter<std::string>("reference_map_pcd_path", "");
+  if (!reference_map_path.empty()) {
+    const auto reference_points_opt = load_reference_pcd_ascii(reference_map_path);
+    if (reference_points_opt.has_value()) {
+      const auto& ref_points = *reference_points_opt;
+      const auto& preproc = core::preprocess_scan(ref_points, lio->config);
+      lio->set_reference_map(preproc.map_update_frame());
+      RCLCPP_INFO_STREAM(node->get_logger(),
+                         "Loaded reference map from " << reference_map_path << " with "
+                                                       << preproc.map_update_frame().size() << " points.");
+    } else {
+      RCLCPP_WARN_STREAM(node->get_logger(), "Reference map not loaded from " << reference_map_path
+                                                                              << ". Map registration will be skipped.");
+    }
+  }
 
   // Timestamp processing params - lts for lidar time stamps, without having 100 char param names
   timestamp_proc_config.multiplier_to_seconds =
