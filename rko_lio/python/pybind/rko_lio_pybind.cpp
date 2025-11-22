@@ -117,6 +117,11 @@ PYBIND11_MODULE(rko_lio_pybind, m) {
             return self.register_scan(Sophus::SE3d(extrinsic_lidar2base), scan, tsd);
           },
           "extrinsic_lidar2base"_a, "scan"_a, "timestamps"_a)
+      .def("set_reference_map",
+           [](LIO& self, const std::vector<Eigen::Vector3d>& reference_points) {
+             self.set_reference_map(reference_points);
+           },
+           "reference_points"_a)
       .def("map_point_cloud", [](LIO& self) { return self.map.Pointcloud(); })
       .def("pose", [](LIO& self) { return self.lidar_state.pose.matrix(); })
       .def("poses_with_timestamps",

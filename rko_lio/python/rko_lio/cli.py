@@ -218,6 +218,15 @@ def cli(
         is_eager=True,
         rich_help_panel="Auxilary commands",
     ),
+    reference_map_pcd_path: Path | None = typer.Option(
+        None,
+        "--reference_map_pcd",
+        help="Path to an ASCII PCD reference map (x y z, DATA ascii) for map registration",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+    ),
 ):
     """
     Run RKO_LIO with the selected dataloader and parameters.
@@ -310,6 +319,46 @@ def cli(
     from .lio_pipeline import LIOPipeline
 
     pipeline = LIOPipeline(pipeline_config)
+
+    # Optional reference map loading for registration
+    if reference_map_pcd_path is not None:
+        import numpy as np
+
+        try:
+            points = []
+            with open(reference_map_pcd_path, "r") as f:
+                in_data = False
+                for line in f:
+                    if line.startswith("DATA"):
+                        if "ascii" not in line:
+                            warning(
+                                f"{reference_map_pcd_path} is not DATA ascii; skipping reference map load."
+                            )
+                            points = []
+                            break
+                        in_data = True
+                        continue
+                    if not in_data or not line.strip():
+                        continue
+                    vals = line.strip().split()
+                    if len(vals) >= 3:
+                        try:
+                            x, y, z = float(vals[0]), float(vals[1]), float(vals[2])
+                            points.append([x, y, z])
+                        except ValueError:
+                            continue
+            if points:
+                ref_np = np.asarray(points, dtype=np.float64)
+                pipeline.lio.set_reference_map(ref_np)
+                info(
+                    f"Loaded reference map from {reference_map_pcd_path} with {ref_np.shape[0]} points."
+                )
+            else:
+                warning(
+                    f"Reference map not loaded from {reference_map_pcd_path}; no points found."
+                )
+        except OSError as e:
+            warning(f"Failed to load reference map {reference_map_pcd_path}: {e}")
 
     from tqdm import tqdm
 

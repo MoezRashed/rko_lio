@@ -191,3 +191,18 @@ class LIO:
     def poses_with_timestamps(self):
         timestamps, poses = self._impl.poses_with_timestamps()
         return np.asarray(timestamps), poses
+
+    def set_reference_map(self, reference_points: np.ndarray):
+        """
+        Load a reference map point cloud into the LIO core.
+
+        Parameters
+        ----------
+        reference_points : array of float, shape (N,3)
+            Point cloud in the odom/world frame.
+        """
+        ref = np.asarray(reference_points, dtype=np.float64)
+        if ref.ndim != 2 or ref.shape[1] != 3:
+            raise ValueError(f"reference_points: expected (N,3), got {ref.shape}")
+        ref_vec = _Vector3dVector(ref)
+        self._impl.set_reference_map(ref_vec)

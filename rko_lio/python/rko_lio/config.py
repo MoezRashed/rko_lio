@@ -187,6 +187,11 @@ class LIOConfig(_LIOConfig):
         "max_expected_jerk": 3.0,
         "double_downsample": True,
         "min_beta": 200.0,
+        "enable_registration": True,
+        "map_radius": 100.0,
+        "time_period_map_registration": 5.0,
+        "max_translation": 5.0,
+        "max_rotation": 0.174533,
     }
 
     def __init__(self, **kwargs):

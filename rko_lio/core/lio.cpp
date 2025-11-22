@@ -197,11 +197,6 @@ inline Sophus::SO3d align_accel_to_z_world(const Eigen::Vector3d& accel) {
   const Eigen::Quaterniond quat_accel = Eigen::Quaterniond::FromTwoVectors(accel, z_world);
   return Sophus::SO3d(quat_accel);
 }
-
-void LIO::set_reference_map(const Vector3dVector& map_points){
-  _reference_map.emplace(config.voxel_size, config.max_range, config.max_points_per_voxel);
-  _reference_map->Update(map_points, Sophus::SE3d{});
-}
 } // namespace
 
 // ==========================
@@ -209,6 +204,11 @@ void LIO::set_reference_map(const Vector3dVector& map_points){
 // ==========================
 
 namespace rko_lio::core {
+
+void LIO::set_reference_map(const Vector3dVector& map_points) {
+  _reference_map.emplace(config.voxel_size, config.max_range, config.max_points_per_voxel);
+  _reference_map->Update(map_points, Sophus::SE3d{});
+}
 
 // ==========================
 //          private
